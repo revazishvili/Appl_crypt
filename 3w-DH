@@ -1,0 +1,80 @@
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+import os
+
+def generate_private_key(name):
+    """პირადი გასაღების გენერაცია და ფაილში შენახვა"""
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+    with open(f"{name}_private_key.pem", "wb") as f:
+        f.write(pem)
+    return private_key
+
+def compute_public_key(private_key, name):
+    """საჯარო გასაღების გამოთვლა და ფაილში შენახვა"""
+    public_key = private_key.public_key()
+    pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    with open(f"{name}_public_key.pem", "wb") as f:
+        f.write(pem)
+    return public_key
+
+def compute_shared_key(private_key, peer_public_key, name):
+    """საერთო გასაღების გამოთვლა და ფაილში შენახვა"""
+    shared_key = private_key.exchange(ec.ECDH(), peer_public_key)
+    derived_key = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'handshake data',
+    ).derive(shared_key)
+    with open(f"{name}_shared_key.bin", "wb") as f:
+        f.write(derived_key)
+    return derived_key
+
+def three_party_ecdh():
+    """სამ-მხრივი ECDH პროტოკოლი"""
+    # გასაღების გენერაცია
+    alice_private = generate_private_key("alice")
+    bob_private = generate_private_key("bob")
+    carol_private = generate_private_key("carol")
+
+    print("პირადი გასაღებები გენერირებულია და შენახულია")
+
+    # საჯარო გასაღებების გამოთვლა
+    alice_public = compute_public_key(alice_private, "alice")
+    bob_public = compute_public_key(bob_private, "bob")
+    carol_public = compute_public_key(carol_private, "carol")
+
+    print("საჯარო გასაღებები გამოთვლილია, გაზიარებულია და შენახულია")
+
+    # პირველი რაუნდის გაცვლა
+    alice_bob = compute_shared_key(alice_private, bob_public, "alice_bob")
+    bob_carol = compute_shared_key(bob_private, carol_public, "bob_carol")
+    carol_alice = compute_shared_key(carol_private, alice_public, "carol_alice")
+
+    print("პირველი რაუნდის გაცვლა დასრულებულია და შედეგები შენახულია")
+
+    # მეორე რაუნდის გაცვლა და საბოლოო გასაღების გამოთვლა
+    alice_final = compute_shared_key(alice_private, carol_public, "alice_final")
+    bob_final = compute_shared_key(bob_private, alice_public, "bob_final")
+    carol_final = compute_shared_key(carol_private, bob_public, "carol_final")
+
+    print("მეორე რაუნდის გაცვლა და საბოლოო გასაღების გამოთვლა დასრულებულია")
+
+    # შემოწმება
+    if alice_final == bob_final == carol_final:
+        print("წარმატება: ყველა მხარემ გამოითვალა ერთი და იგივე საერთო საიდუმლო.")
+        print(f"საერთო საიდუმლოს ჰეში: {hashes.SHA256(alice_final).hexdigest()}")
+    else:
+        print("შეცდომა: საერთო საიდუმლოები არ ემთხვევა!")
+
+# ალგორითმის გაშვება
+three_party_ecdh()
